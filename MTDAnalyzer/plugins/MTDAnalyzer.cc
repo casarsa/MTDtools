@@ -28,20 +28,23 @@
 #include "TH1.h"
 #include "TH2.h"
 #include "TProfile.h"
-#include "TEfficiency.h"
+
 
 
 struct MTDinfo {
 
   float sim_energy;
   float sim_time;
+  float sim_x;
+  float sim_y;
+  float sim_z;
 
-  uint32_t digi_charge;
-  uint32_t digi_time1;
-  uint32_t digi_time2;
+  uint32_t digi_charge[2];
+  uint32_t digi_time1[2];
+  uint32_t digi_time2[2];
 
-  float ureco_charge;
-  float ureco_time;
+  float ureco_charge[2];
+  float ureco_time[2];
 
   float reco_energy;
   float reco_time;
@@ -82,6 +85,7 @@ private:
 
   // ----------member data ---------------------------
 
+  const float btlIntegrationWindow_;
   const float btlMinEnergy_;
 
 
@@ -115,52 +119,76 @@ private:
   std::unordered_map<uint32_t, MTDinfo> etl_hits;
   
 
-  // --- Histograms declaration
+  // ============================================================================================
+  // Histograms declaration
+
+  // --- SIM
 
   TH1F *h_n_sim_trk;
   TH1F *h_n_sim_cell;
-  TH2F *h_occupancy_sim;
   TH1F *h_t_sim;
   TH1F *h_e_sim;
-  TEfficiency* e_e_sim_digi;
-  TEfficiency* e_e_sim_ureco;
-  TEfficiency* e_e_sim_reco;
-  TEfficiency* e_phi_sim_digi;
-  TEfficiency* e_phi_sim_ureco;
-  TEfficiency* e_phi_sim_reco;
-  TEfficiency* e_eta_sim_digi;
-  TEfficiency* e_eta_sim_ureco;
-  TEfficiency* e_eta_sim_reco;
-  
+  TH1F *h_x_sim;
+  TH1F *h_y_sim;
+  TH1F *h_z_sim;
+  TH2F *h_occupancy_sim;
   TH1F *h_phi_sim;
   TH1F *h_eta_sim;
+ 
+  TH2F *h_t_e_sim;
+  TH2F *h_e_eta_sim;
+  TH2F *h_t_eta_sim;
+  TH2F *h_e_phi_sim;
+  TH2F *h_t_phi_sim;
 
+  TProfile *p_t_e_sim;
   TProfile *p_e_eta_sim;
   TProfile *p_t_eta_sim;
   TProfile *p_e_phi_sim;
   TProfile *p_t_phi_sim;
 
 
-  TH1F *h_n_digi;
-  TH2F *h_occupancy_digi;
-  TH1F *h_t1_digi;
-  TH1F *h_t2_digi;
-  TH1F *h_e_digi;
-  TH1F *h_phi_digi;
-  TH1F *h_eta_digi;
+  // --- DIGI
 
-  TProfile *p_e_eta_digi;
-  TProfile *p_t_eta_digi;
-  TProfile *p_e_phi_digi;
-  TProfile *p_t_phi_digi;
+  TH1F *h_n_digi[2];
+  TH1F *h_t1_digi[2];
+  TH1F *h_t2_digi[2];
+  TH1F *h_e_digi[2];
+  TH2F *h_occupancy_digi[2];
+  TH1F *h_phi_digi[2];
+  TH1F *h_eta_digi[2];
+
+  TH2F *h_t1_e_digi[2]; 
+  TH2F *h_t2_e_digi[2];
+  TH2F *h_e_eta_digi[2];
+  TH2F *h_t1_eta_digi[2];
+  TH2F *h_t2_eta_digi[2];
+  TH2F *h_e_phi_digi[2];
+  TH2F *h_t1_phi_digi[2];
+  TH2F *h_t2_phi_digi[2];
+
+  TProfile *p_t1_e_digi[2];
+  TProfile *p_t2_e_digi[2];
+  TProfile *p_e_eta_digi[2];
+  TProfile *p_t1_eta_digi[2]; 
+  TProfile *p_t2_eta_digi[2];
+  TProfile *p_e_phi_digi[2];
+  TProfile *p_t1_phi_digi[2];
+  TProfile *p_t2_phi_digi[2];
 
 
+  // --- Uncalibrated RECO
 
-  TH1F *h_n_ureco;
-  TH2F *h_occupancy_ureco;
-  TH1F *h_t_ureco;
-  TH1F *h_t_ureco_uncorr;
-  TH1F *h_e_ureco;
+  TH1F *h_n_ureco[2];
+  TH1F *h_t_ureco[2];
+  TH1F *h_t_ureco_uncorr[2];
+  TH1F *h_e_ureco[2];
+  TH2F *h_occupancy_ureco[2];
+
+  TH2F *h_t_amp_ureco[2];
+  TProfile *p_t_amp_ureco[2];
+
+  // --- RECO
 
   TH1F *h_n_reco;
   TH2F *h_occupancy_reco;
@@ -172,9 +200,6 @@ private:
   TH1F *h_t_res_uncorr;
   TH1F *h_e_res;
 
-  TH2F *h_t_amp_ureco;
-  TProfile *p_t_amp_ureco;
-
   TH2F *h_t_reco_sim;
   TH2F *h_e_reco_sim;
 
@@ -182,6 +207,7 @@ private:
 
 
 MTDAnalyzer::MTDAnalyzer(const edm::ParameterSet& iConfig) :
+  btlIntegrationWindow_( iConfig.getParameter<double>("BTLIntegrationWindow") ),
   btlMinEnergy_( iConfig.getParameter<double>("BTLMinimumEnergy") ) {
 
   tok_BTL_sim = consumes<edm::PSimHitContainer>(edm::InputTag("g4SimHits","FastTimerHitsBarrel"));
@@ -199,64 +225,162 @@ MTDAnalyzer::MTDAnalyzer(const edm::ParameterSet& iConfig) :
   edm::Service<TFileService> fs;
 
 
-  // --- Histograms definition
+  // ============================================================================================
+  // Histograms definition
 
-  h_n_sim_trk   = fs->make<TH1F>("h_n_sim_trk", "Number of tracks per BTL cell;N_{trk}", 10, 0., 10.);
+  // --- SIM
+
+  h_n_sim_trk  = fs->make<TH1F>("h_n_sim_trk", "Number of tracks per BTL cell;N_{trk}", 10, 0., 10.);
   h_n_sim_cell = fs->make<TH1F>("h_n_sim_cell", "Number of BTL cells with SIM hits;N_{BTL cells}", 100, 0., 100.);
+
+  h_t_sim = fs->make<TH1F>("h_t_sim", "SIM hits ToA;ToA [ns]", 500, 0., 50.);
+  h_e_sim = fs->make<TH1F>("h_e_sim", "SIM hits energy;E [MeV]", 200, 0., 20.);
+  h_x_sim = fs->make<TH1F>("h_x_sim", "SIM local x;x_{SIM} [mm]", 290, -1.45, 1.45);
+  h_y_sim = fs->make<TH1F>("h_y_sim", "SIM local y;y_{SIM} [mm]", 600, -30., 30.);
+  h_z_sim = fs->make<TH1F>("h_z_sim", "SIM local z;z_{SIM} [MeV]", 400, -2., 2.);
+
   h_occupancy_sim = fs->make<TH2F>("h_occupancy_sim", "SIM hits occupancy;cell #phi;cell #eta", 
 				   145, 0., 2305., 86, -43., 43.);
-  h_t_sim   = fs->make<TH1F>("h_t_sim", "SIM hits ToA;ToA [ns]", 500, 0., 50.);
-  h_e_sim   = fs->make<TH1F>("h_e_sim", "SIM hits energy;E [MeV]", 200, 0., 20.);
-
-  e_e_sim_digi = fs->make<TEfficiency>("e_e_sim_digi", "DIGI efficiency;E_{SIM} [MeV]", 100, 0., 20.);
-  e_e_sim_ureco= fs->make<TEfficiency>("e_e_sim_ureco", "URECO efficiency;E_{SIM} [MeV]", 100, 0., 20.);
-  e_e_sim_reco = fs->make<TEfficiency>("e_e_sim_reco", "RECO efficiency;E_{SIM} [MeV]", 100, 0., 20.);
-  e_phi_sim_digi = fs->make<TEfficiency>("e_phi_sim_digi", "DIGI efficiency;cell #phi", 145, 0., 2305.);
-  e_phi_sim_ureco= fs->make<TEfficiency>("e_phi_sim_ureco", "URECO efficiency;cell #phi", 145, 0., 2305.);
-  e_phi_sim_reco = fs->make<TEfficiency>("e_phi_sim_reco", "RECO efficiency;cell #phi", 145, 0., 2305.);
-  e_eta_sim_digi = fs->make<TEfficiency>("e_eta_sim_digi", "DIGI efficiency;cell #eta", 43, 0., 43.);
-  e_eta_sim_ureco= fs->make<TEfficiency>("e_eta_sim_ureco", "URECO efficiency;cell #eta", 43, 0., 43.);
-  e_eta_sim_reco = fs->make<TEfficiency>("e_eta_sim_reco", "RECO efficiency;cell #eta", 43, 0., 43.);
-
   h_phi_sim = fs->make<TH1F>("h_phi_sim", "SIM hits #phi;#phi index", 145, 0., 2305.);
   h_eta_sim = fs->make<TH1F>("h_eta_sim", "SIM hits #eta;#eta index", 86, -43., 43.);
 
+  h_t_e_sim   = fs->make<TH2F>("h_t_e_sim", "SIM time vs energy;E_{SIM} [MeV];T_{SIM} [ns]", 
+			       100, 0., 20., 100, 0., 50.);
+  h_e_eta_sim = fs->make<TH2F>("h_e_eta_sim", "SIM energy vs |#eta|;cell |#eta|;E_{SIM} [MeV]", 
+			       43, 0., 43., 100, 0., 20.);
+  h_t_eta_sim = fs->make<TH2F>("h_t_eta_sim", "SIM time vs |#eta|;cell |#eta|;T_{SIM} [ns]", 
+			       43, 0., 43., 100, 0., 50.);
+  h_e_phi_sim = fs->make<TH2F>("h_e_phi_sim", "SIM energy vs #phi;cell #phi;E_{SIM} [MeV]", 
+			       145, 0., 2305., 100, 0., 20.);
+  h_t_phi_sim = fs->make<TH2F>("h_t_phi_sim", "SIM time vs #phi;cell #phi;T_{SIM} [ns]", 
+			       145, 0., 2305., 100, 0., 50.);
+
+  p_t_e_sim   = fs->make<TProfile>("p_t_e_sim", "SIM time vs energy;E_{SIM} [MeV];T_{SIM} [ns]", 
+				   100, 0., 20.);
   p_e_eta_sim = fs->make<TProfile>("p_e_eta_sim", "SIM energy vs |#eta|;cell |#eta|;E_{SIM} [MeV]", 
-				    43, 0., 43.);
+				   43, 0., 43.);
   p_t_eta_sim = fs->make<TProfile>("p_t_eta_sim", "SIM time vs |#eta|;cell |#eta|;T_{SIM} [ns]", 
-				    43, 0., 43.);
+				   43, 0., 43.);
   p_e_phi_sim = fs->make<TProfile>("p_e_phi_sim", "SIM energy vs #phi;cell #phi;E_{SIM} [MeV]", 
-				    145, 0., 2305.);
+				   145, 0., 2305.);
   p_t_phi_sim = fs->make<TProfile>("p_t_phi_sim", "SIM time vs #phi;cell #phi;T_{SIM} [ns]", 
-				    145, 0., 2305.);
+				   145, 0., 2305.);
 
 
-  h_n_digi  = fs->make<TH1F>("h_n_digi", "Number of DIGI hits;N_{DIGI hits}", 100, 0., 100.);
-  h_occupancy_digi = fs->make<TH2F>("h_occupancy_digi", "DIGI hits occupancy;cell #phi;cell #eta", 
-				    145, 0., 2305., 86, -43., 43.);
-  h_t1_digi = fs->make<TH1F>("h_t1_digi", "DIGI hits ToA (1);ToA [TDC counts]", 1024, 0., 1024.);
-  h_t2_digi = fs->make<TH1F>("h_t2_digi", "DIGI hits ToA (2);ToA [TDC counts]", 1024, 0., 1024.);
-  h_e_digi  = fs->make<TH1F>("h_e_digi", "DIGI hits energy;amplitude [ADC counts]", 1024, 0., 1024.);
+  // --- DIGI
 
-  h_phi_digi = fs->make<TH1F>("h_phi_digi", "DIGI hits #phi;#phi index", 145, 0., 2305.);
-  h_eta_digi = fs->make<TH1F>("h_eta_digi", "DIGI hits #eta;#eta index", 86, -43., 43.);
+  h_n_digi[0]  = fs->make<TH1F>("h_n_digi_0", "Number of DIGI hits (L);N_{DIGI hits}", 100, 0., 100.);
+  h_n_digi[1]  = fs->make<TH1F>("h_n_digi_1", "Number of DIGI hits (R);N_{DIGI hits}", 100, 0., 100.);
+  h_t1_digi[0] = fs->make<TH1F>("h_t1_digi_0", "DIGI hits ToA1 (L);ToA [TDC counts]", 1024, 0., 1024.);
+  h_t1_digi[1] = fs->make<TH1F>("h_t1_digi_1", "DIGI hits ToA1 (R);ToA [TDC counts]", 1024, 0., 1024.);
+  h_t2_digi[0] = fs->make<TH1F>("h_t2_digi_0", "DIGI hits ToA2 (L);ToA [TDC counts]", 1024, 0., 1024.);
+  h_t2_digi[1] = fs->make<TH1F>("h_t2_digi_1", "DIGI hits ToA2 (R);ToA [TDC counts]", 1024, 0., 1024.);
+  h_e_digi[0]  = fs->make<TH1F>("h_e_digi_0", "DIGI hits energy (L);amplitude [ADC counts]", 1024, 0., 1024.);
+  h_e_digi[1]  = fs->make<TH1F>("h_e_digi_1", "DIGI hits energy (R);amplitude [ADC counts]", 1024, 0., 1024.);
+
+  h_occupancy_digi[0] = fs->make<TH2F>("h_occupancy_digi_0", "DIGI hits occupancy (L);cell #phi;cell #eta", 
+				       145, 0., 2305., 86, -43., 43.);
+  h_occupancy_digi[1] = fs->make<TH2F>("h_occupancy_digi_1", "DIGI hits occupancy (R);cell #phi;cell #eta", 
+				       145, 0., 2305., 86, -43., 43.);
+  h_phi_digi[0] = fs->make<TH1F>("h_phi_digi_0", "DIGI hits #phi (L);#phi index", 145, 0., 2305.);
+  h_phi_digi[1] = fs->make<TH1F>("h_phi_digi_1", "DIGI hits #phi (R);#phi index", 145, 0., 2305.);
+  h_eta_digi[0] = fs->make<TH1F>("h_eta_digi_0", "DIGI hits #eta (L);#eta index", 86, -43., 43.);
+  h_eta_digi[1] = fs->make<TH1F>("h_eta_digi_1", "DIGI hits #eta (R);#eta index", 86, -43., 43.);
 
 
-  p_e_eta_digi = fs->make<TProfile>("p_e_eta_digi", "DIGI charge vs |#eta|;cell |#eta|;ADC counts", 
-				    43, 0., 43.);
-  p_t_eta_digi = fs->make<TProfile>("p_t_eta_digi", "DIGI time vs |#eta|;cell |#eta|;TDC counts", 
-				    43, 0., 43.);
-  p_e_phi_digi = fs->make<TProfile>("p_e_phi_digi", "DIGI charge vs #phi;cell #phi;ADC counts", 
-				    145, 0., 2305.);
-  p_t_phi_digi = fs->make<TProfile>("p_t_phi_digi", "DIGI time vs #phi;cell #phi;TDC counts", 
-				    145, 0., 2305.);
+  h_t1_e_digi[0]   = fs->make<TH2F>("h_t1_e_digi_0", "DIGI time1 vs charge (L);ADC counts;TDC counts", 
+				    128, 0., 1024., 128, 0., 1024.);
+  h_t1_e_digi[1]   = fs->make<TH2F>("h_t1_e_digi_1", "DIGI time1 vs charge (R);ADC counts;TDC counts", 
+				    128, 0., 1024., 128, 0., 1024.);
+  h_t2_e_digi[0]   = fs->make<TH2F>("h_t2_e_digi_0", "DIGI time2 vs charge (L);ADC counts;TDC counts", 
+				    128, 0., 1024., 128, 0., 1024.);
+  h_t2_e_digi[1]   = fs->make<TH2F>("h_t2_e_digi_1", "DIGI time2 vs charge (R);ADC counts;TDC counts", 
+				    128, 0., 1024., 128, 0., 1024.);
+  h_e_eta_digi[0]  = fs->make<TH2F>("h_e_eta_digi_0", "DIGI charge vs |#eta| (L);cell |#eta|;ADC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_e_eta_digi[1]  = fs->make<TH2F>("h_e_eta_digi_1", "DIGI charge vs |#eta| (R);cell |#eta|;ADC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_t1_eta_digi[0] = fs->make<TH2F>("h_t1_eta_digi_0", "DIGI time1 vs |#eta| (L);cell |#eta|;TDC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_t1_eta_digi[1] = fs->make<TH2F>("h_t1_eta_digi_1", "DIGI time1 vs |#eta| (R);cell |#eta|;TDC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_t2_eta_digi[0] = fs->make<TH2F>("h_t2_eta_digi_0", "DIGI time2 vs |#eta| (L);cell |#eta|;TDC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_t2_eta_digi[1] = fs->make<TH2F>("h_t2_eta_digi_1", "DIGI time2 vs |#eta| (R);cell |#eta|;TDC counts", 
+				    43, 0., 43., 128, 0., 1024.);
+  h_e_phi_digi[0]  = fs->make<TH2F>("h_e_phi_digi_0", "DIGI charge vs #phi (L);cell #phi;ADC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
+  h_e_phi_digi[1]  = fs->make<TH2F>("h_e_phi_digi_1", "DIGI charge vs #phi (R);cell #phi;ADC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
+  h_t1_phi_digi[0] = fs->make<TH2F>("h_t1_phi_digi_0", "DIGI time1 vs #phi (L);cell #phi;TDC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
+  h_t1_phi_digi[1] = fs->make<TH2F>("h_t1_phi_digi_1", "DIGI time1 vs #phi (R);cell #phi;TDC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
+  h_t2_phi_digi[0] = fs->make<TH2F>("h_t2_phi_digi_0", "DIGI time2 vs #phi (L);cell #phi;TDC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
+  h_t2_phi_digi[1] = fs->make<TH2F>("h_t2_phi_digi_1", "DIGI time2 vs #phi (R);cell #phi;TDC counts", 
+				    145, 0., 2305., 128, 0., 1024.);
 
-  h_n_ureco  = fs->make<TH1F>("h_n_ureco", "Number of URECO hits;N_{URECO hits}", 100, 0., 100.);
-  h_occupancy_ureco = fs->make<TH2F>("h_occupancy_ureco", "URECO hits occupancy;cell #phi;cell #eta", 
-				     145, 0., 2305., 86, -43., 43.);
-  h_t_ureco  = fs->make<TH1F>("h_t_ureco", "URECO hits ToA;ToA [ns]", 250, 0., 25.);
-  h_t_ureco_uncorr = fs->make<TH1F>("h_t_ureco_uncorr", "URECO hits ToA;ToA [ns]", 250, 0., 25.);
-  h_e_ureco  = fs->make<TH1F>("h_e_ureco", "URECO hits energy;Q [pC]", 300, 0., 600.);
+  p_t1_e_digi[0]   = fs->make<TProfile>("p_t1_e_digi_0", "DIGI time1 vs charge (L);ADC counts;TDC counts", 
+					128, 0., 1024.);
+  p_t1_e_digi[1]   = fs->make<TProfile>("p_t1_e_digi_1", "DIGI time1 vs charge (R);ADC counts;TDC counts", 
+					128, 0., 1024.);
+  p_t2_e_digi[0]   = fs->make<TProfile>("p_t2_e_digi_0", "DIGI time2 vs charge (L);ADC counts;TDC counts", 
+					128, 0., 1024.);
+  p_t2_e_digi[1]   = fs->make<TProfile>("p_t2_e_digi_1", "DIGI time2 vs charge (R);ADC counts;TDC counts", 
+					128, 0., 1024.);
+  p_e_eta_digi[0]  = fs->make<TProfile>("p_e_eta_digi_0", "DIGI charge vs |#eta| (L);cell |#eta|;ADC counts", 
+					43, 0., 43.);
+  p_e_eta_digi[1]  = fs->make<TProfile>("p_e_eta_digi_1", "DIGI charge vs |#eta| (R);cell |#eta|;ADC counts", 
+					43, 0., 43.);
+  p_t1_eta_digi[0] = fs->make<TProfile>("p_t1_eta_digi_0", "DIGI time1 vs |#eta| (L);cell |#eta|;TDC counts", 
+					43, 0., 43.);
+  p_t1_eta_digi[1] = fs->make<TProfile>("p_t1_eta_digi_1", "DIGI time1 vs |#eta| (R);cell |#eta|;TDC counts", 
+					43, 0., 43.);
+  p_t2_eta_digi[0] = fs->make<TProfile>("p_t2_eta_digi_0", "DIGI time2 vs |#eta| (L);cell |#eta|;TDC counts", 
+					43, 0., 43.);
+  p_t2_eta_digi[1] = fs->make<TProfile>("p_t2_eta_digi_1", "DIGI time2 vs |#eta| (R);cell |#eta|;TDC counts", 
+					43, 0., 43.);
+  p_e_phi_digi[0]  = fs->make<TProfile>("p_e_phi_digi_0", "DIGI charge vs #phi (L);cell #phi;ADC counts", 
+					145, 0., 2305.);
+  p_e_phi_digi[1]  = fs->make<TProfile>("p_e_phi_digi_1", "DIGI charge vs #phi (R);cell #phi;ADC counts", 
+					145, 0., 2305.);
+  p_t1_phi_digi[0] = fs->make<TProfile>("p_t1_phi_digi_0", "DIGI time1 vs #phi (L);cell #phi;TDC counts", 
+					145, 0., 2305.);
+  p_t1_phi_digi[1] = fs->make<TProfile>("p_t1_phi_digi_1", "DIGI time1 vs #phi (R);cell #phi;TDC counts", 
+					145, 0., 2305.);
+  p_t2_phi_digi[0] = fs->make<TProfile>("p_t2_phi_digi_0", "DIGI time2 vs #phi (L);cell #phi;TDC counts", 
+					145, 0., 2305.);
+  p_t2_phi_digi[1] = fs->make<TProfile>("p_t2_phi_digi_1", "DIGI time2 vs #phi (R);cell #phi;TDC counts", 
+					145, 0., 2305.);
+
+
+  // --- Uncalibrated RECO
+
+  h_n_ureco[0]  = fs->make<TH1F>("h_n_ureco_0", "Number of URECO hits (L);N_{URECO hits}", 100, 0., 100.);
+  h_n_ureco[1]  = fs->make<TH1F>("h_n_ureco_1", "Number of URECO hits (R);N_{URECO hits}", 100, 0., 100.);
+  h_occupancy_ureco[0] = fs->make<TH2F>("h_occupancy_ureco_0", "URECO hits occupancy (L);cell #phi;cell #eta", 
+					145, 0., 2305., 86, -43., 43.);
+  h_occupancy_ureco[1] = fs->make<TH2F>("h_occupancy_ureco_1", "URECO hits occupancy (R);cell #phi;cell #eta", 
+					145, 0., 2305., 86, -43., 43.);
+  h_t_ureco[0] = fs->make<TH1F>("h_t_ureco_0", "URECO hits ToA (L);ToA [ns]", 250, 0., 25.);
+  h_t_ureco[1] = fs->make<TH1F>("h_t_ureco_1", "URECO hits ToA (R);ToA [ns]", 250, 0., 25.);
+  h_t_ureco_uncorr[0] = fs->make<TH1F>("h_t_ureco_uncorr_0", "URECO hits ToA (L);ToA [ns]", 250, 0., 25.);
+  h_t_ureco_uncorr[1] = fs->make<TH1F>("h_t_ureco_uncorr_1", "URECO hits ToA (R);ToA [ns]", 250, 0., 25.);
+  h_e_ureco[0] = fs->make<TH1F>("h_e_ureco_0", "URECO hits energy (L);Q [pC]", 300, 0., 600.);
+  h_e_ureco[1] = fs->make<TH1F>("h_e_ureco_1", "URECO hits energy (R);Q [pC]", 300, 0., 600.);
+
+  h_t_amp_ureco[0] = fs->make<TH2F>("h_t_amp_ureco_0", "time vs amplitude (L);amplitude [pC];time [ns]", 
+				    100, 0., 600., 400, 0., 20.);
+  h_t_amp_ureco[1] = fs->make<TH2F>("h_t_amp_ureco_1", "time vs amplitude (R);amplitude [pC];time [ns]", 
+				    100, 0., 600., 400, 0., 20.);
+  p_t_amp_ureco[0] = fs->make<TProfile>("p_t_amp_ureco_0", "time vs amplitude (L);amplitude [pC];time [ns]", 
+					100, 0., 600.);
+  p_t_amp_ureco[1] = fs->make<TProfile>("p_t_amp_ureco_1", "time vs amplitude (R);amplitude [pC];time [ns]", 
+					100, 0., 600.);
+
+
+  // --- RECO
 
   h_n_reco  = fs->make<TH1F>("h_n_reco", "Number of RECO hits;N_{RECO hits}", 100, 0., 100.);
   h_occupancy_reco = fs->make<TH2F>("h_occupancy_reco", "RECO hits occupancy;cell #phi;cell #eta", 
@@ -274,11 +398,6 @@ MTDAnalyzer::MTDAnalyzer(const edm::ParameterSet& iConfig) :
   h_e_reco_sim = fs->make<TH2F>("h_e_reco_sim", "E reco vs sim;SIM E [MeV];RECO E [MeV]", 
 				100, 0., 20., 100, 0., 20.);
 
-  h_t_amp_ureco = fs->make<TH2F>("h_t_amp_ureco", "time vs amplitude;amplitude [pC];time [ns]", 
-				100, 0., 600., 400, 0., 20.);
-
-  p_t_amp_ureco = fs->make<TProfile>("p_t_amp_ureco", "time vs amplitude;amplitude [pC];time [ns]", 
-				     100, 0., 600.);
 
 
 }
@@ -352,13 +471,25 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
 
       auto simHitIt = btl_hits.emplace(id.rawId(),MTDinfo()).first;
 
-      (simHitIt->second).sim_energy += 1000.*hit.energyLoss();
+      if ( hit.tof() < btlIntegrationWindow_ ) // This is to emulate the time integration
+	                                       // window in the readout electronics.
+	(simHitIt->second).sim_energy += 1000.*hit.energyLoss();
 
       n_btl_simHits[id.rawId()].insert(hit.trackId());
 
       // Get the time of the first SimHit in the cell
-      if( (simHitIt->second).sim_time==0 )
+      if( (simHitIt->second).sim_time==0 ) {
+
+	auto hit_pos = hit.localPosition();
+
+	(simHitIt->second).sim_x = hit_pos.x();
+	(simHitIt->second).sim_y = hit_pos.y();
+	(simHitIt->second).sim_z = hit_pos.z();
+
 	(simHitIt->second).sim_time = hit.tof();
+
+      }
+
 
     } // hitRef loop
 
@@ -370,42 +501,29 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
   //  MTD DIGI hits
   // ==============================================================================
 
-  unsigned int n_digi_btl = 0;
+  unsigned int n_digi_btl[2] = {0,0};
 
   if ( h_BTL_digi->size() > 0 ) {
 
     for (const auto& dataFrame: *h_BTL_digi) {
 
       DetId id =  dataFrame.id();
+      
+      const auto& sample_L = dataFrame.sample(0);
+      const auto& sample_R = dataFrame.sample(1);
 
-      // --- loop over the dataFrame samples
-      for (int isample = 0; isample<dataFrame.size(); ++isample){
+      btl_hits[id.rawId()].digi_charge[0] = sample_L.data();
+      btl_hits[id.rawId()].digi_charge[1] = sample_R.data();
+      btl_hits[id.rawId()].digi_time1[0]  = sample_L.toa();
+      btl_hits[id.rawId()].digi_time1[1]  = sample_R.toa();
+      btl_hits[id.rawId()].digi_time2[0]  = sample_L.toa2();
+      btl_hits[id.rawId()].digi_time2[1]  = sample_R.toa2();
 
-	const auto& sample = dataFrame.sample(isample);
-	
-	if ( sample.data()!=0 && sample.toa()!=0 ) {
+      if ( sample_L.data() > 0 )
+	n_digi_btl[0]++;
 
-	  // on-time sample
-	  if ( isample == 2 ) {
-
-	    btl_hits[id.rawId()].digi_charge =  sample.data();
-	    btl_hits[id.rawId()].digi_time1  =  sample.toa();
-	    btl_hits[id.rawId()].digi_time2  =  sample.toa2();
-
-	    n_digi_btl++;
-
-	  }
-	  //else {
-	  //  std::cout << "*** WARNING: Sample " << isample << " is not empty!" << std::endl;
-	  //  std::cout << "             amplitude = " << sample.data()
-	  //	      << "  time 1 = " << sample.toa() << "  time 2 = " <<  sample.toa2()
-	  //	      << std::endl;
-	  //
-	  //}
-
-	} 
-
-      } // isaple loop
+      if ( sample_R.data() > 0 )
+	n_digi_btl[1]++;
 
     } // dataFrame loop
 
@@ -417,7 +535,7 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
   //  MTD Uncalibrated RECO hits
   // ==============================================================================
 
-  unsigned int n_ureco_btl = 0;
+  unsigned int n_ureco_btl[2] = {0,0};
 
   if ( h_BTL_ureco->size() > 0 ) {
 
@@ -425,11 +543,16 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
 
       DetId id = urecHit.id();
 
-      btl_hits[id.rawId()].ureco_charge = urecHit.amplitude();
-      btl_hits[id.rawId()].ureco_time   = urecHit.time();
+      btl_hits[id.rawId()].ureco_charge[0] = urecHit.amplitude().first;
+      btl_hits[id.rawId()].ureco_charge[1] = urecHit.amplitude().second;
+      btl_hits[id.rawId()].ureco_time[0]   = urecHit.time().first;
+      btl_hits[id.rawId()].ureco_time[1]   = urecHit.time().second;
 
-      if ( urecHit.amplitude() > 0. )
-	n_ureco_btl++;
+      if ( urecHit.amplitude().first > 0. )
+	n_ureco_btl[0]++;
+
+      if ( urecHit.amplitude().second > 0. )
+	n_ureco_btl[1]++;
       
 
     } // recHit loop
@@ -470,87 +593,122 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
   for (auto const& hit: n_btl_simHits) {
     h_n_sim_trk->Fill((hit.second).size());
   }
-
   h_n_sim_cell->Fill(unique_simHit.size());
-  h_n_digi->Fill(n_digi_btl);
-  h_n_ureco->Fill(n_ureco_btl);
+  for (int iside=0; iside<2; ++iside){
+    h_n_digi[iside]->Fill(n_digi_btl[iside]);
+    h_n_ureco[iside]->Fill(n_ureco_btl[iside]);
+  }
   h_n_reco->Fill(n_reco_btl);
-
 
   for (auto const& hit: btl_hits) {
 
     BTLDetId detId(hit.first); 
 
-    //if ( (hit.second).ureco_charge < 10. ) continue;
 
-    h_t_amp_ureco->Fill((hit.second).ureco_charge,(hit.second).ureco_time);
-    p_t_amp_ureco->Fill((hit.second).ureco_charge,(hit.second).ureco_time);
+    if ( (hit.second).reco_energy < btlMinEnergy_ ) continue;
     
 
-    //if ( (hit.second).reco_energy < btlMinEnergy_ ) continue;
-    
-    //if ( (hit.second).sim_energy < 1. ) continue;
+    // --- SIM
 
-    e_e_sim_digi->Fill((hit.second).digi_charge > 0., (hit.second).sim_energy);
-    e_e_sim_ureco->Fill((hit.second).ureco_charge > 0., (hit.second).sim_energy);
-    e_e_sim_reco->Fill((hit.second).reco_energy > 0., (hit.second).sim_energy);
+    //if ( (hit.second).sim_energy == 0. ) continue;
 
-    e_phi_sim_digi->Fill((hit.second).digi_charge > 0.,   detId.iphi(BTLDetId::CrysLayout::barzflat));
-    e_phi_sim_ureco->Fill((hit.second).ureco_charge > 0., detId.iphi(BTLDetId::CrysLayout::barzflat));
-    e_phi_sim_reco->Fill((hit.second).reco_energy > 0.,   detId.iphi(BTLDetId::CrysLayout::barzflat));
+    int hit_iphi = detId.iphi(BTLDetId::CrysLayout::barzflat);
+    int hit_ieta = detId.ieta(BTLDetId::CrysLayout::barzflat);
 
-    e_eta_sim_digi->Fill((hit.second).digi_charge > 0.,   detId.ietaAbs(BTLDetId::CrysLayout::barzflat));
-    e_eta_sim_ureco->Fill((hit.second).ureco_charge > 0., detId.ietaAbs(BTLDetId::CrysLayout::barzflat));
-    e_eta_sim_reco->Fill((hit.second).reco_energy > 0.,   detId.ietaAbs(BTLDetId::CrysLayout::barzflat));
-
-    if ( (hit.second).sim_energy == 0. ) continue;
-    //if ( (hit.second).sim_energy < 2. ) continue;
 
     h_e_sim->Fill((hit.second).sim_energy);
     h_t_sim->Fill((hit.second).sim_time);
 
-    h_phi_sim->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat));
-    h_eta_sim->Fill(detId.ieta(BTLDetId::CrysLayout::barzflat));
+    h_x_sim->Fill((hit.second).sim_x);
+    h_y_sim->Fill((hit.second).sim_y);
+    h_z_sim->Fill((hit.second).sim_z);
+
+    h_occupancy_sim->Fill(hit_iphi,hit_ieta);
+    h_phi_sim->Fill(hit_iphi);
+    h_eta_sim->Fill(hit_ieta);
+  
+    h_t_e_sim->Fill((hit.second).sim_energy,(hit.second).sim_time);
+    h_e_eta_sim->Fill(fabs(hit_ieta),(hit.second).sim_energy);
+    h_t_eta_sim->Fill(fabs(hit_ieta),(hit.second).sim_time);
+    h_e_phi_sim->Fill(hit_iphi,(hit.second).sim_energy);
+    h_t_phi_sim->Fill(hit_iphi,(hit.second).sim_time);
+
+    p_t_e_sim->Fill((hit.second).sim_energy,(hit.second).sim_time);
+    p_e_eta_sim->Fill(fabs(hit_ieta),(hit.second).sim_energy);
+    p_t_eta_sim->Fill(fabs(hit_ieta),(hit.second).sim_time);
+    p_e_phi_sim->Fill(hit_iphi,(hit.second).sim_energy);
+    p_t_phi_sim->Fill(hit_iphi,(hit.second).sim_time);
+
+
+    // Time-walk correctio:
+    const float p0 =  2.21103;
+    const float p1 = -0.933552;
+    const float p2 =  0.;
+    float time_corr[2];
+
+    for (int iside=0; iside<2; ++iside){
+
+      // --- DIGI
+
+      if ( (hit.second).digi_charge[iside] == 0 ) continue;
+
+      h_e_digi[iside] ->Fill((hit.second).digi_charge[iside]);
+      h_t1_digi[iside]->Fill((hit.second).digi_time1[iside]);
+      h_t2_digi[iside]->Fill((hit.second).digi_time2[iside]);
+
+      h_occupancy_digi[iside]->Fill(hit_iphi,hit_ieta);
+      h_phi_digi[iside]->Fill(hit_iphi);
+      h_eta_digi[iside]->Fill(hit_ieta);
+
+      h_t1_e_digi[iside]->Fill((hit.second).digi_charge[iside], (hit.second).digi_time1[iside]);
+      h_t2_e_digi[iside]->Fill((hit.second).digi_charge[iside], (hit.second).digi_time2[iside]);
+      h_e_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_charge[iside]);
+      h_t1_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_time1[iside]);
+      h_t2_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_time2[iside]);
+      h_e_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_charge[iside]);
+      h_t1_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_time1[iside]);
+      h_t2_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_time2[iside]);
+
+      p_t1_e_digi[iside]->Fill((hit.second).digi_charge[iside], (hit.second).digi_time1[iside]);
+      p_t2_e_digi[iside]->Fill((hit.second).digi_charge[iside], (hit.second).digi_time2[iside]);
+      p_e_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_charge[iside]);
+      p_t1_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_time1[iside]);
+      p_t2_eta_digi[iside]->Fill(fabs(hit_ieta),(hit.second).digi_time2[iside]);
+      p_e_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_charge[iside]);
+      p_t1_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_time1[iside]);
+      p_t2_phi_digi[iside]->Fill(hit_iphi,(hit.second).digi_time2[iside]);
+
+
+      // --- Uncalibrated RECO
+
+      if ( (hit.second).ureco_charge[iside] == 0. ) continue;
+
+      h_e_ureco[iside]->Fill((hit.second).ureco_charge[iside]);
+      h_t_ureco[iside]->Fill((hit.second).ureco_time[iside]);
+
+      h_occupancy_ureco[iside]->Fill(hit_iphi,hit_ieta);
+
+      h_t_amp_ureco[iside]->Fill((hit.second).ureco_charge[iside],(hit.second).ureco_time[iside]);
+      p_t_amp_ureco[iside]->Fill((hit.second).ureco_charge[iside],(hit.second).ureco_time[iside]);
     
 
+      // Reverse the global correction
 
-    h_occupancy_sim->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),detId.ieta(BTLDetId::CrysLayout::barzflat));
+      time_corr[iside] = p0*pow((hit.second).ureco_charge[iside],p1) + p2;
 
-    p_e_eta_sim->Fill(detId.ietaAbs(BTLDetId::CrysLayout::barzflat),(hit.second).sim_energy);
-    p_t_eta_sim->Fill(detId.ietaAbs(BTLDetId::CrysLayout::barzflat),(hit.second).sim_time);
-    p_e_phi_sim->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),(hit.second).sim_energy);
-    p_t_phi_sim->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),(hit.second).sim_time);
+      float ureco_time_uncorr = (hit.second).ureco_time[iside] + time_corr[iside];
 
-
-    if ( (hit.second).digi_charge == 0 ) continue;
-
-    h_occupancy_digi->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),detId.ieta(BTLDetId::CrysLayout::barzflat));
-
-    h_e_digi ->Fill((hit.second).digi_charge);
-    h_t1_digi->Fill((hit.second).digi_time1);
-    h_t2_digi->Fill((hit.second).digi_time2);
-    
-    h_phi_digi->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat));
-    h_eta_digi->Fill(detId.ieta(BTLDetId::CrysLayout::barzflat));
-
-    p_e_eta_digi->Fill(detId.ietaAbs(BTLDetId::CrysLayout::barzflat),(hit.second).digi_charge);
-    p_t_eta_digi->Fill(detId.ietaAbs(BTLDetId::CrysLayout::barzflat),(hit.second).digi_time1);
-    p_e_phi_digi->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),(hit.second).digi_charge);
-    p_t_phi_digi->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),(hit.second).digi_time1);
+      h_t_ureco_uncorr[iside]->Fill(ureco_time_uncorr);
 
 
-    if ( (hit.second).ureco_charge == 0. ) continue;
-
-    h_occupancy_ureco->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),detId.ieta(BTLDetId::CrysLayout::barzflat));
-
-    h_e_ureco->Fill((hit.second).ureco_charge);
-    h_t_ureco->Fill((hit.second).ureco_time);
+    } // for iside
 
 
+    // --- RECO
 
     if ( (hit.second).reco_energy == 0. ) continue;
 
-    h_occupancy_reco->Fill(detId.iphi(BTLDetId::CrysLayout::barzflat),detId.ieta(BTLDetId::CrysLayout::barzflat));
+    h_occupancy_reco->Fill(hit_iphi,hit_ieta);
 
     h_e_reco->Fill((hit.second).reco_energy);
     h_t_reco->Fill((hit.second).reco_time);
@@ -561,24 +719,9 @@ MTDAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
     h_t_reco_sim->Fill((hit.second).sim_time,(hit.second).reco_time);
     h_e_reco_sim->Fill((hit.second).sim_energy,(hit.second).reco_energy);
 
+    
+    float reco_time_uncorr = (hit.second).reco_time + 0.5*(time_corr[0]+time_corr[1]); 
 
-
-    // --- Reverse the global correction
-
-    float ureco_charge = (hit.second).ureco_charge;
-
-    const float p0 = 24.8997;
-    const float p1 = -0.911385;
-    const float p2 =  3.3744717;
-
-    float time_corr = p0*pow(ureco_charge,p1) + p2;
-
-    float ureco_time_uncorr = (hit.second).ureco_time + time_corr;
-
-    float reco_time_uncorr = ureco_time_uncorr;
-
-
-    h_t_ureco_uncorr->Fill(ureco_time_uncorr);
     h_t_reco_uncorr->Fill(reco_time_uncorr);
     h_t_res_uncorr->Fill(reco_time_uncorr-(hit.second).sim_time);
 

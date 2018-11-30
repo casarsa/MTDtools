@@ -12,12 +12,14 @@ process.MessageLogger.cerr.FwkReport  = cms.untracked.PSet(
 
 process.source = cms.Source("PoolSource",
     fileNames = cms.untracked.vstring(
-        'file:step3_0.root'
+        'file:step3.root',
+        #'file:/eos/infnts/cms/store/user/casarsa/MTD/SingleMuPt10_pythia8_2023D24_noPU/step3.root'
     )
 )
 
 process.MTDAnalyzer = cms.EDAnalyzer('MTDAnalyzer',
-                                     BTLMinimumEnergy = cms.double(1.)  # [MeV]
+                                     BTLIntegrationWindow = cms.double(25.), # [ns]
+                                     BTLMinimumEnergy     = cms.double(2.)   # [MeV]
                                      )
 
 process.TFileService = cms.Service("TFileService",
